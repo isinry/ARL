@@ -24,7 +24,8 @@ from .arlupdate import arl_update
 from .cdn import get_cdn_name_by_cname, get_cdn_name_by_ip
 from .device import device_info
 from .cron import check_cron, check_cron_interval
-
+from .query_loader import load_query_plugins
+import re
 
 def load_file(path):
     with open(path, "r+", encoding="utf-8") as f:
@@ -37,6 +38,7 @@ def exec_system(cmd, **kwargs):
 
     if kwargs.get('timeout'):
         timeout = kwargs['timeout']
+        kwargs.pop('timeout')
 
     completed = subprocess.run(shlex.split(cmd), timeout=timeout, check=False, close_fds=True, **kwargs)
 
@@ -91,12 +93,12 @@ def get_logger():
     return logging.getLogger('arlv2')
 
 
-def get_ip(domain, log_flag = True):
+def get_ip(domain, log_flag=True):
     domain = domain.strip()
     logger = get_logger()
     ips = []
     try:
-        answers = dns.resolver.query(domain, 'A')
+        answers = dns.resolver.resolve(domain, 'A')
         for rdata in answers:
             if rdata.address == '0.0.0.1':
                 continue
@@ -116,21 +118,20 @@ def get_cname(domain, log_flag=True):
     logger = get_logger()
     cnames = []
     try:
-        answers = dns.resolver.query(domain, 'CNAME')
+        answers = dns.resolver.resolve(domain, 'CNAME')
         for rdata in answers:
             cnames.append(str(rdata.target).strip(".").lower())
     except dns.resolver.NoAnswer as e:
         if log_flag:
             logger.debug(e)
     except Exception as e:
-        if log_flag:
-            logger.warning("{} {}".format(domain, e))
+        logger.warning("{} {}".format(domain, e))
+
     return cnames
 
 
-def domain_parsed(domain, fail_silently = True):
+def domain_parsed(domain, fail_silently=True):
     domain = domain.strip()
-    logger = get_logger()
     try:
         res = get_tld(domain, fix_protocol=True,  as_object=True)
         item = {
@@ -144,8 +145,9 @@ def domain_parsed(domain, fail_silently = True):
             raise e
 
 
-def get_fld(domain):
-    res = domain_parsed(domain)
+def get_fld(d):
+    """获取域名的主域"""
+    res = domain_parsed(d)
     if res:
         return res["fld"]
 
@@ -153,7 +155,7 @@ def get_fld(domain):
 def gen_filename(site):
     filename = site.replace('://', '_')
 
-    return re.sub('[^\w\-_\. ]', '_', filename)
+    return re.sub(r'[^\w\-_\\. ]', '_', filename)
 
 
 def build_ret(error, data):
@@ -197,6 +199,37 @@ def exit_gracefully(signum, frame):
     parent = psutil.Process(pid)
     logger.info("kill self {}".format(parent))
     parent.kill()
+
+
+def truncate_string(s):
+    if len(s) > 30:
+        truncated_string = s[:30]
+        return truncated_string + "..."
+    else:
+        return s
+
+
+def is_valid_exclude_ports(exclude_ports):
+    """
+    检查 nmap 中的排除端口范围是否合法
+    """
+    port_pattern = r'(\d+(-\d+)?,?)+'
+
+    match = re.fullmatch(port_pattern, exclude_ports)
+
+    if match:
+        parts = exclude_ports.split(',')
+        for part in parts:
+            if '-' in part:
+                start, end = map(int, part.split('-'))
+                if start > end or not (0 <= start <= 65535) or not (0 <= end <= 65535):
+                    return False
+            else:
+                if not (0 <= int(part) <= 65535):
+                    return False
+        return True
+    else:
+        return False
 
 
 from .user import user_login, user_login_header, auth, user_logout, change_pass

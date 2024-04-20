@@ -21,7 +21,7 @@ def check_domain_black(domain):
             return True
 
     if blackhexie_list is None:
-        with open(Config.black_heixie_path) as f:
+        with open(Config.black_hexie_path) as f:
             blackhexie_list = f.readlines()
 
     try:
@@ -55,7 +55,7 @@ def is_valid_domain(domain):
     if "." not in domain:
         return False
 
-    invalid_chars = "!@#$%&*():_"
+    invalid_chars = "!@#$%&*():_\\"
     for c in invalid_chars:
         if c in domain:
             return False

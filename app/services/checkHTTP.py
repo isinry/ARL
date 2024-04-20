@@ -1,5 +1,3 @@
-import threading
-import collections
 import time
 
 from app import utils
@@ -16,13 +14,19 @@ class CheckHTTP(BaseThread):
         self.checkout_map = {}
 
     def check(self, url):
-        conn = utils.http_req(url, method="head", timeout=self.timeout)
+        conn = utils.http_req(url, method="get", timeout=self.timeout, stream=True)
+        conn.close()
+
         if conn.status_code == 400:
             # 特殊情况排除
             etag = conn.headers.get("ETag")
             date = conn.headers.get("Date")
             if not etag or not date:
                 return None
+
+        # *** 特殊情况过滤
+        if conn.status_code == 422 or conn.status_code == 410:
+            return None
 
         if (conn.status_code >= 501) and (conn.status_code < 600):
             return None
@@ -58,7 +62,6 @@ class CheckHTTP(BaseThread):
         logger.info("start check http {}".format(len(self.targets)))
         self._run()
         elapse = time.time() - t1
-        logger.info("end start check http {} elapse {}".format(len(self.checkout_map), elapse))
         return self.checkout_map
 
 

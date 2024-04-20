@@ -2,7 +2,6 @@ import bson
 import re
 from app import utils
 from app.modules import TaskStatus, TaskTag, TaskType, CeleryAction
-from app import celerytask
 
 logger = utils.get_logger()
 
@@ -34,6 +33,9 @@ def get_ip_domain_list(target):
             raise Exception("{} 包含在禁止域名内".format(item))
 
         elif utils.is_valid_domain(item):
+            if utils.check_domain_black(item):
+                raise Exception("{} 包含在系统黑名单中".format(item))
+
             domain_list.add(item)
 
         elif utils.is_valid_fuzz_domain(item):
@@ -66,7 +68,7 @@ def build_task_data(task_name, task_target, task_type, task_tag, options):
         disable_options = {
             "domain_brute": False,
             "alt_dns": False,
-            "riskiq_search": False,
+            "dns_query_plugin": False,
             "arl_search": False
         }
         options_cp.update(disable_options)
@@ -103,6 +105,8 @@ def build_task_data(task_name, task_target, task_type, task_tag, options):
 
 
 def submit_task(task_data):
+    from app import celerytask
+
     target = task_data["target"]
     utils.conn_db('task').insert_one(task_data)
     task_id = str(task_data.pop("_id"))
@@ -114,7 +118,9 @@ def submit_task(task_data):
         TaskType.IP: CeleryAction.IP_TASK,
         TaskType.RISK_CRUISING: CeleryAction.RUN_RISK_CRUISING,
         TaskType.ASSET_SITE_UPDATE: CeleryAction.ASSET_SITE_UPDATE,
-        TaskType.FOFA: CeleryAction.FOFA_TASK
+        TaskType.FOFA: CeleryAction.FOFA_TASK,
+        TaskType.ASSET_SITE_ADD: CeleryAction.ADD_ASSET_SITE_TASK,
+        TaskType.ASSET_WIH_UPDATE: CeleryAction.ASSET_WIH_UPDATE,
     }
 
     task_type = task_data["type"]
@@ -172,23 +178,9 @@ def submit_task_task(target, name, options):
 
 # 风险巡航任务下发
 def submit_risk_cruising(target, name, options):
-    target_items = []
     target_lists = target2list(target)
-    for x in target_lists:
-        if not x:
-            continue
-        if "://" not in x:
-            target_items.append(x)
-            continue
-
-        item = utils.url.cut_filename(x)
-        if item:
-            target_items.append(item)
-
-    target_items = list(set(target_items))
-
     task_data_list = []
-    task_data = build_task_data(task_name=name, task_target=target_items,
+    task_data = build_task_data(task_name=name, task_target=target_lists,
                                 task_type=TaskType.RISK_CRUISING, task_tag=TaskTag.RISK_CRUISING,
                                 options=options)
 
@@ -196,6 +188,24 @@ def submit_risk_cruising(target, name, options):
     task_data_list.append(task_data)
 
     return task_data_list
+
+
+def submit_add_asset_site_task(task_name: str, target: list, options: dict) -> dict:
+    task_data = {
+        'name': task_name,
+        'target': "站点：{}".format(len(target)),
+        'start_time': '-',
+        'status': TaskStatus.WAITING,
+        'type': TaskType.ASSET_SITE_ADD,
+        "task_tag": TaskTag.RISK_CRUISING,
+        'options': options,
+        "end_time": "-",
+        "service": [],
+        "cruising_target": target,
+        "celery_id": ""
+    }
+    task_data = submit_task(task_data)
+    return task_data
 
 
 def get_task_data(task_id):

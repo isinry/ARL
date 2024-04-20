@@ -27,7 +27,7 @@ WORKDIR /code
 
 RUN set -x;\
     apt-get update \
-    && apt-get install -y python3.8 python3-pip curl nginx nmap \
+    && apt-get install -y python3.8 python3-pip curl nginx nmap wget unzip \
     && ln -s /usr/bin/python3.8 /usr/bin/python3.6 \
     && useradd -s /bin/false nginx \
     && nmap -v
@@ -61,5 +61,26 @@ RUN pip3 install -r requirements.txt
 WORKDIR /opt/ARL-NPoC/
 RUN pip3 install -r requirements.txt
 
+# 定义nuclei版本
+ARG NUCLEI_VERSION=3.2.4
+
+# 安装nuclei
+RUN wget "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_arm64.zip" \
+    && unzip "nuclei_${NUCLEI_VERSION}_linux_arm64.zip" nuclei \
+    && mv nuclei /usr/bin/ \
+    && rm -f "nuclei_${NUCLEI_VERSION}_linux_arm64.zip"
+
+# 运行nuclei
+RUN nuclei -ut
+
+## 安装 WIH
+RUN wget https://github.com/1c3z/arl_files/raw/master/wih/wih_linux_arm64 -O /usr/bin/wih && chmod +x /usr/bin/wih
+RUN wih --version
+
 ## 切换工作目录
 WORKDIR /code
+
+## 自测一下
+RUN cp app/config.yaml.example app/config.yaml
+RUN env FLASK_APP=app.main:arl_app python3.6 -m flask routes
+RUN python3 -m app.celerytask
